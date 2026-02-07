@@ -1,48 +1,43 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
 
-export function LoginScreen() {
-  const [phone, setPhone] = useState('')
-  const [countryCode, setCountryCode] = useState('+34')
-  const [otp, setOtp] = useState('')
-  const [step, setStep] = useState<'phone' | 'otp'>('phone')
-  const [loading, setLoading] = useState(false)
+const USERS: Record<string, { password: string; id: string; name: string }> = {
+  angel: { password: '12345', id: 'user-angel', name: 'Ángel' },
+  kike: { password: '12345', id: 'user-kike', name: 'Kike' },
+  leo: { password: '12345', id: 'bot-leo', name: 'Leo AI' },
+  tanke: { password: '12345', id: 'bot-tanke', name: 'Tanke' },
+}
+
+interface Props {
+  onLogin: (user: { id: string; name: string; username: string }) => void
+}
+
+export function LoginScreen({ onLogin }: Props) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState('')
 
-  async function handleSendOtp(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
     setError('')
 
-    const { error } = await supabase.auth.signInWithOtp({
-      phone: `${countryCode}${phone}`
-    })
-
-    if (error) {
-      setError(error.message)
-    } else {
-      setStep('otp')
+    const user = USERS[username.toLowerCase()]
+    
+    if (!user) {
+      setError('Usuario no encontrado')
+      return
     }
-    setLoading(false)
-  }
 
-  async function handleVerifyOtp(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    const { error } = await supabase.auth.verifyOtp({
-      phone: `${countryCode}${phone}`,
-      token: otp,
-      type: 'sms'
-    })
-
-    if (error) {
-      setError(error.message)
+    if (user.password !== password) {
+      setError('Contraseña incorrecta')
+      return
     }
-    setLoading(false)
+
+    // Guardar en localStorage
+    const userData = { id: user.id, name: user.name, username: username.toLowerCase() }
+    localStorage.setItem('chat-vertex-user', JSON.stringify(userData))
+    onLogin(userData)
   }
 
   return (
@@ -59,92 +54,47 @@ export function LoginScreen() {
 
         {/* Form */}
         <div className="bg-gray-800 rounded-2xl p-6">
-          {step === 'phone' ? (
-            <form onSubmit={handleSendOtp} className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">
-                  Número de teléfono
-                </label>
-                <div className="flex gap-2">
-                  <select
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    className="bg-gray-700 text-white rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="+34">🇪🇸 +34</option>
-                    <option value="+1">🇺🇸 +1</option>
-                    <option value="+52">🇲🇽 +52</option>
-                    <option value="+54">🇦🇷 +54</option>
-                  </select>
-                  <input
-                    type="tel"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="612 345 678"
-                    className="flex-1 bg-gray-700 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required
-                  />
-                </div>
-              </div>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Usuario</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="angel o kike"
+                className="w-full bg-gray-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500"
+                required
+              />
+            </div>
 
-              {error && (
-                <p className="text-red-500 text-sm">{error}</p>
-              )}
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Contraseña</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="•••••"
+                className="w-full bg-gray-700 text-white rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-green-500"
+                required
+              />
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading || phone.length < 9}
-                className="w-full bg-green-600 text-white rounded-lg py-3 font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Enviando...' : 'Enviar código'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">
-                  Código de verificación
-                </label>
-                <input
-                  type="text"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
-                  placeholder="123456"
-                  maxLength={6}
-                  className="w-full bg-gray-700 text-white rounded-lg px-4 py-2 text-center text-2xl tracking-widest focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required
-                />
-                <p className="text-sm text-gray-400 mt-2">
-                  Enviado a {countryCode} {phone}
-                </p>
-              </div>
+            {error && (
+              <p className="text-red-500 text-sm">{error}</p>
+            )}
 
-              {error && (
-                <p className="text-red-500 text-sm">{error}</p>
-              )}
-
-              <button
-                type="submit"
-                disabled={loading || otp.length < 6}
-                className="w-full bg-green-600 text-white rounded-lg py-3 font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? 'Verificando...' : 'Verificar'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStep('phone')}
-                className="w-full text-gray-400 text-sm hover:text-white"
-              >
-                ← Cambiar número
-              </button>
-            </form>
-          )}
+            <button
+              type="submit"
+              className="w-full bg-green-600 text-white rounded-lg py-3 font-medium hover:bg-green-700"
+            >
+              Entrar
+            </button>
+          </form>
         </div>
 
         {/* Footer */}
         <p className="text-center text-gray-500 text-sm mt-6">
-          Solo para: Ángel, Enrique, Leo y Tanke
+          Usuarios: angel, kike, leo, tanke | Pass: 12345
         </p>
       </div>
     </div>

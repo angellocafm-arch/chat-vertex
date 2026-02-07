@@ -1,7 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getConversations, Conversation } from '@/lib/supabase'
+import { useState } from 'react'
+
+// Conversaciones mock para pruebas
+const MOCK_CONVERSATIONS = [
+  { id: 'conv-1', name: 'Grupo Vertex', type: 'group', lastMessage: '¡Hola equipo!', time: 'Ahora' },
+  { id: 'conv-2', name: 'Ángel', type: 'direct', lastMessage: 'Revisando el código...', time: '14:30' },
+  { id: 'conv-3', name: 'Kike', type: 'direct', lastMessage: 'Perfecto, adelante', time: '13:15' },
+  { id: 'conv-4', name: 'Leo AI', type: 'bot', lastMessage: 'Proyecto estructurado ✅', time: '12:00' },
+  { id: 'conv-5', name: 'Tanke', type: 'bot', lastMessage: 'Schema SQL listo', time: '11:45' },
+]
 
 interface Props {
   userId: string
@@ -10,37 +18,7 @@ interface Props {
 }
 
 export function ChatList({ userId, selectedChat, onSelectChat }: Props) {
-  const [conversations, setConversations] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    loadConversations()
-  }, [userId])
-
-  async function loadConversations() {
-    const { data, error } = await getConversations(userId)
-    if (data) setConversations(data)
-    setLoading(false)
-  }
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="animate-pulse text-gray-500">Cargando...</div>
-      </div>
-    )
-  }
-
-  if (conversations.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-4 text-gray-500">
-        <p>No hay conversaciones</p>
-        <button className="mt-4 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
-          Nueva conversación
-        </button>
-      </div>
-    )
-  }
+  const conversations = MOCK_CONVERSATIONS
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -53,27 +31,27 @@ export function ChatList({ userId, selectedChat, onSelectChat }: Props) {
           }`}
         >
           {/* Avatar */}
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-green-500 to-blue-500 flex items-center justify-center text-white font-bold">
-            {conv.name?.[0] || conv.type[0].toUpperCase()}
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold ${
+            conv.type === 'bot' 
+              ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
+              : conv.type === 'group'
+              ? 'bg-gradient-to-br from-green-500 to-blue-500'
+              : 'bg-gradient-to-br from-blue-500 to-cyan-500'
+          }`}>
+            {conv.type === 'bot' ? '🤖' : conv.name[0]}
           </div>
           
           {/* Info */}
           <div className="flex-1 text-left">
-            <h3 className="text-white font-medium">
-              {conv.name || `Chat ${conv.type}`}
+            <h3 className="text-white font-medium flex items-center gap-2">
+              {conv.name}
+              {conv.type === 'bot' && <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded">Bot</span>}
             </h3>
-            <p className="text-sm text-gray-400 truncate">
-              {conv.messages?.[0]?.content || 'Sin mensajes'}
-            </p>
+            <p className="text-sm text-gray-400 truncate">{conv.lastMessage}</p>
           </div>
 
           {/* Time */}
-          <span className="text-xs text-gray-500">
-            {conv.last_message_at 
-              ? new Date(conv.last_message_at).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })
-              : ''
-            }
-          </span>
+          <span className="text-xs text-gray-500">{conv.time}</span>
         </button>
       ))}
     </div>

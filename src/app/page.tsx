@@ -1,28 +1,34 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { supabase } from '@/lib/supabase'
+import { LoginScreen } from '@/components/LoginScreen'
 import { ChatList } from '@/components/ChatList'
 import { ChatWindow } from '@/components/ChatWindow'
-import { LoginScreen } from '@/components/LoginScreen'
+
+interface User {
+  id: string
+  name: string
+  username: string
+}
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [selectedChat, setSelectedChat] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => setUser(session?.user ?? null)
-    )
-
-    return () => subscription.unsubscribe()
+    // Verificar si hay usuario en localStorage
+    const stored = localStorage.getItem('chat-vertex-user')
+    if (stored) {
+      setUser(JSON.parse(stored))
+    }
+    setLoading(false)
   }, [])
+
+  function handleLogout() {
+    localStorage.removeItem('chat-vertex-user')
+    setUser(null)
+  }
 
   if (loading) {
     return (
@@ -33,16 +39,24 @@ export default function Home() {
   }
 
   if (!user) {
-    return <LoginScreen />
+    return <LoginScreen onLogin={setUser} />
   }
 
   return (
     <main className="h-screen flex bg-gray-900">
-      {/* Sidebar - Lista de chats */}
+      {/* Sidebar */}
       <aside className="w-80 border-r border-gray-700 flex flex-col">
-        <header className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold text-white">Chat Vertex</h1>
-          <p className="text-sm text-gray-400">{user.phone || user.email}</p>
+        <header className="p-4 border-b border-gray-700 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-white">Chat Vertex</h1>
+            <p className="text-sm text-gray-400">{user.name}</p>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="text-gray-400 hover:text-white text-sm"
+          >
+            Salir
+          </button>
         </header>
         <ChatList 
           userId={user.id} 
@@ -51,16 +65,20 @@ export default function Home() {
         />
       </aside>
 
-      {/* Main - Ventana de chat */}
+      {/* Main */}
       <section className="flex-1 flex flex-col">
         {selectedChat ? (
           <ChatWindow 
             conversationId={selectedChat} 
-            userId={user.id} 
+            userId={user.id}
+            userName={user.name}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center text-gray-500">
-            <p>Selecciona una conversación</p>
+            <div className="text-center">
+              <p className="text-6xl mb-4">💬</p>
+              <p>Selecciona una conversación</p>
+            </div>
           </div>
         )}
       </section>

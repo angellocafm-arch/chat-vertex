@@ -5,11 +5,10 @@ import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 // ============================================================
-// CHAT VERTEX — Copia exacta del chat privado de WhatsSound
-// Adaptado para Next.js web
+// CHAT VERTEX — Visual idéntico a WhatsSound
+// Tablas separadas: cv_messages (NO toca WhatsSound)
 // ============================================================
 
-// Colores de WhatsSound (idénticos)
 const colors = {
   primary: '#25D366',
   background: '#0B141A',
@@ -23,58 +22,36 @@ const colors = {
   bubbleOther: '#1F2C34',
 }
 
-// Usuarios del chat
-const USERS: Record<string, { id: string; visibleName: string; isBot: boolean }> = {
-  angel: { id: 'user-angel', visibleName: 'Ángel', isBot: false },
-  kike: { id: 'user-kike', visibleName: 'Kike', isBot: false },
-  tanke: { id: 'bot-tanke', visibleName: 'Tanke', isBot: true },
-  leo: { id: 'bot-leo', visibleName: 'Leo AI', isBot: true },
+const USERS: Record<string, { id: string; name: string; isBot: boolean }> = {
+  angel: { id: 'user-angel', name: 'Ángel', isBot: false },
+  kike: { id: 'user-kike', name: 'Kike', isBot: false },
+  tanke: { id: 'bot-tanke', name: 'Tanke', isBot: true },
+  leo: { id: 'bot-leo', name: 'Leo AI', isBot: true },
 }
-
-// ID de la conversación compartida
-const CONVERSATION_ID = 'vertex-main-chat'
 
 interface Message {
   id: string
-  conversation_id: string
   sender_id: string
+  sender_name: string
   content: string
-  type: string
-  is_read: boolean
+  is_bot: boolean
   created_at: string
 }
 
-// Formatear timestamp como WhatsSound
-function formatMessageTime(date: Date): string {
-  return date.toLocaleTimeString('es-ES', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  })
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-// Obtener nombre visible de un sender_id
-function getSenderName(senderId: string): string {
-  const entry = Object.values(USERS).find(u => u.id === senderId)
-  return entry?.visibleName || 'Usuario'
-}
-
-function isBot(senderId: string): boolean {
-  const entry = Object.values(USERS).find(u => u.id === senderId)
-  return entry?.isBot || false
-}
-
-// Componente de burbuja de mensaje (idéntico a WhatsSound)
 function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean }) {
   return (
     <div className={`max-w-[80%] my-0.5 ${isOwn ? 'self-end' : 'self-start'}`}>
       <div 
         className={`px-3 py-2 ${isOwn ? 'rounded-2xl rounded-br-sm' : 'rounded-2xl rounded-bl-sm'}`}
-        style={{ backgroundColor: isOwn ? colors.bubbleOwn : (isBot(message.sender_id) ? '#4C1D95' : colors.bubbleOther) }}
+        style={{ backgroundColor: isOwn ? colors.bubbleOwn : (message.is_bot ? '#4C1D95' : colors.bubbleOther) }}
       >
         {!isOwn && (
-          <p className="text-xs font-medium mb-1" style={{ color: isBot(message.sender_id) ? '#C4B5FD' : colors.primary }}>
-            {getSenderName(message.sender_id)} {isBot(message.sender_id) && '🤖'}
+          <p className="text-xs font-medium mb-1" style={{ color: message.is_bot ? '#C4B5FD' : colors.primary }}>
+            {message.sender_name} {message.is_bot && '🤖'}
           </p>
         )}
         <p className="text-[15px] leading-5 whitespace-pre-wrap break-words" style={{ color: colors.textPrimary }}>
@@ -82,10 +59,10 @@ function MessageBubble({ message, isOwn }: { message: Message; isOwn: boolean })
         </p>
         <div className="flex items-center justify-end gap-1 mt-1">
           <span className="text-[11px]" style={{ color: colors.textMuted }}>
-            {formatMessageTime(new Date(message.created_at))}
+            {formatTime(new Date(message.created_at))}
           </span>
           {isOwn && (
-            <svg className="w-4 h-4" style={{ color: message.is_read ? colors.primary : colors.textMuted }} fill="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" style={{ color: colors.primary }} fill="currentColor" viewBox="0 0 24 24">
               <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z"/>
             </svg>
           )}
@@ -99,133 +76,95 @@ export default function ChatPage() {
   const searchParams = useSearchParams()
   const userKey = searchParams.get('u')?.toLowerCase()
   
-  const [currentUser, setCurrentUser] = useState<typeof USERS[string] | null>(null)
+  const [user, setUser] = useState<typeof USERS[string] | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
-  const [messageText, setMessageText] = useState('')
+  const [text, setText] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Identificar usuario
   useEffect(() => {
-    if (userKey && USERS[userKey]) {
-      setCurrentUser(USERS[userKey])
-    }
+    if (userKey && USERS[userKey]) setUser(USERS[userKey])
     setLoading(false)
   }, [userKey])
 
-  // Cargar mensajes y suscribirse a realtime
   useEffect(() => {
-    if (!currentUser) return
-
+    if (!user) return
     loadMessages()
 
-    // Suscripción Realtime (como WhatsSound)
     const channel = supabase
-      .channel(`chat-${CONVERSATION_ID}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'ws_private_messages',
-          filter: `conversation_id=eq.${CONVERSATION_ID}`,
-        },
-        (payload) => {
-          const newMsg = payload.new as Message
-          setMessages(prev => {
-            if (prev.find(m => m.id === newMsg.id)) return prev
-            return [...prev, newMsg]
-          })
-        }
-      )
+      .channel('cv-realtime')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'cv_messages',
+      }, (payload) => {
+        const msg = payload.new as Message
+        setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg])
+      })
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [currentUser])
+    return () => { supabase.removeChannel(channel) }
+  }, [user])
 
-  // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' })
   }, [messages])
 
   async function loadMessages() {
     const { data } = await supabase
-      .from('ws_private_messages')
+      .from('cv_messages')
       .select('*')
-      .eq('conversation_id', CONVERSATION_ID)
       .order('created_at', { ascending: true })
       .limit(100)
-
     if (data) setMessages(data)
   }
 
-  async function sendMessage() {
-    if (!messageText.trim() || !currentUser || sending) return
-
-    const content = messageText.trim()
-    setMessageText('')
+  async function send() {
+    if (!text.trim() || !user || sending) return
+    const content = text.trim()
+    setText('')
     setSending(true)
 
-    // Mensaje optimista
-    const tempMsg: Message = {
+    const temp: Message = {
       id: `temp-${Date.now()}`,
-      conversation_id: CONVERSATION_ID,
-      sender_id: currentUser.id,
+      sender_id: user.id,
+      sender_name: user.name,
       content,
-      type: 'text',
-      is_read: false,
+      is_bot: user.isBot,
       created_at: new Date().toISOString(),
     }
-    setMessages(prev => [...prev, tempMsg])
+    setMessages(prev => [...prev, temp])
 
     const { data, error } = await supabase
-      .from('ws_private_messages')
-      .insert({
-        conversation_id: CONVERSATION_ID,
-        sender_id: currentUser.id,
-        content,
-        type: 'text',
-      })
+      .from('cv_messages')
+      .insert({ sender_id: user.id, sender_name: user.name, content, is_bot: user.isBot })
       .select()
       .single()
 
     if (error) {
-      console.error('Error:', error)
-      setMessages(prev => prev.filter(m => m.id !== tempMsg.id))
-      setMessageText(content)
+      setMessages(prev => prev.filter(m => m.id !== temp.id))
+      setText(content)
     } else if (data) {
-      setMessages(prev => prev.map(m => m.id === tempMsg.id ? data : m))
+      setMessages(prev => prev.map(m => m.id === temp.id ? data : m))
     }
-
     setSending(false)
     inputRef.current?.focus()
   }
 
-  // Pantalla de selección de usuario
-  if (!currentUser && !loading) {
+  if (!user && !loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center p-4" style={{ background: colors.background }}>
         <h1 className="text-2xl font-bold mb-2" style={{ color: colors.textPrimary }}>Chat Vertex</h1>
         <p className="mb-8" style={{ color: colors.textSecondary }}>Selecciona tu usuario</p>
         <div className="grid grid-cols-2 gap-4 max-w-sm w-full">
           {Object.entries(USERS).map(([key, u]) => (
-            <a
-              key={key}
-              href={`?u=${key}`}
-              className="p-4 rounded-xl text-center transition-transform hover:scale-105"
-              style={{ background: colors.surface }}
-            >
-              <div 
-                className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-xl mb-2"
-                style={{ background: u.isBot ? '#7C3AED' : colors.primary }}
-              >
-                {u.isBot ? '🤖' : u.visibleName[0]}
+            <a key={key} href={`?u=${key}`} className="p-4 rounded-xl text-center hover:scale-105 transition-transform" style={{ background: colors.surface }}>
+              <div className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-xl mb-2" style={{ background: u.isBot ? '#7C3AED' : colors.primary }}>
+                {u.isBot ? '🤖' : u.name[0]}
               </div>
-              <p style={{ color: colors.textPrimary }}>{u.visibleName}</p>
+              <p style={{ color: colors.textPrimary }}>{u.name}</p>
             </a>
           ))}
         </div>
@@ -243,28 +182,21 @@ export default function ChatPage() {
 
   return (
     <div className="h-screen flex flex-col" style={{ background: colors.background }}>
-      {/* Header (como WhatsSound) */}
       <header className="flex items-center gap-3 px-4 py-3" style={{ background: colors.surface, borderBottom: `1px solid ${colors.border}` }}>
         <a href="/" className="p-1" style={{ color: colors.textPrimary }}>
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </a>
-        <div 
-          className="w-10 h-10 rounded-full flex items-center justify-center"
-          style={{ background: colors.primary }}
-        >
+        <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: colors.primary }}>
           <span className="text-white font-bold">V</span>
         </div>
         <div className="flex-1">
           <h2 className="font-medium" style={{ color: colors.textPrimary }}>Grupo Vertex</h2>
-          <p className="text-xs" style={{ color: colors.textSecondary }}>
-            Conectado como {currentUser?.visibleName}
-          </p>
+          <p className="text-xs" style={{ color: colors.textSecondary }}>Conectado como {user?.name}</p>
         </div>
       </header>
 
-      {/* Mensajes */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col">
         {messages.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center" style={{ color: colors.textMuted }}>
@@ -273,47 +205,34 @@ export default function ChatPage() {
           </div>
         ) : (
           messages.map((msg) => (
-            <MessageBubble 
-              key={msg.id} 
-              message={msg} 
-              isOwn={msg.sender_id === currentUser?.id} 
-            />
+            <MessageBubble key={msg.id} message={msg} isOwn={msg.sender_id === user?.id} />
           ))
         )}
       </div>
 
-      {/* Input (como WhatsSound) */}
       <div className="p-3" style={{ background: colors.surface, borderTop: `1px solid ${colors.border}` }}>
         <div className="flex items-end gap-2">
           <input
             ref={inputRef}
             type="text"
-            value={messageText}
-            onChange={(e) => setMessageText(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && send()}
             placeholder="Escribe un mensaje"
             disabled={sending}
             className="flex-1 px-4 py-2 rounded-full focus:outline-none"
-            style={{ 
-              background: colors.surfaceLight, 
-              color: colors.textPrimary,
-              fontSize: '16px',
-            }}
+            style={{ background: colors.surfaceLight, color: colors.textPrimary, fontSize: '16px' }}
             autoComplete="off"
           />
           <button
-            onClick={sendMessage}
-            disabled={!messageText.trim() || sending}
-            className="w-10 h-10 rounded-full flex items-center justify-center transition-colors disabled:opacity-50"
-            style={{ background: messageText.trim() ? colors.primary : colors.surfaceLight }}
+            onClick={send}
+            disabled={!text.trim() || sending}
+            className="w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-50"
+            style={{ background: text.trim() ? colors.primary : colors.surfaceLight }}
           >
-            {sending ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-white"></div>
-            ) : (
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-              </svg>
-            )}
+            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+            </svg>
           </button>
         </div>
       </div>
